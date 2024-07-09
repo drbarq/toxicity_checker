@@ -1,4 +1,4 @@
-# Text Toxicity Checker
+# Toxicity Checker
 
 ## Overview
 
