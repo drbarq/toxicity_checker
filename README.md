@@ -6,6 +6,7 @@ This repository contains scripts for checking the toxicity of text across multip
 1. **Low Confidence:** Confidence is less than 70, regardless of the overall status.
 2. **Borderline:** Confidence is less than 90 and overall status is 'Unsafe'.
 3. **Detected:** All other cases.
+4. **Translation Refused** OpenAI wouldnt translate it 
 
 ## Files
 1. `toxicity_checker.py`
