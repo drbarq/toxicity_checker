@@ -1,4 +1,22 @@
-# Toxicity Checker
+# Toxicity Checker & Toxicity Language
+
+This repository contains scripts for checking the toxicity of text across multiple languages using the Friendly Text Moderation API and OpenAI's GPT-4 for translation. The results are classified into three categories based on confidence levels.
+
+## Classifications
+1. **Low Confidence:** Confidence is less than 70, regardless of the overall status.
+2. **Borderline:** Confidence is less than 90 and overall status is 'Unsafe'.
+3. **Detected:** All other cases.
+
+## Files
+1. `toxicity_checker.py`
+2. `toxicity_language.py`
+
+### `toxicity_checker.py`
+This script is responsible for checking the toxicity of a given text in multiple languages. It translates the text, checks its toxicity, interprets the results, and generates a detailed report.
+
+#### Usage
+```bash
+python toxicity_checker.py "your text to check" --safe-value 0.005 --output toxicity_report.txt
 
 ## Overview
 
