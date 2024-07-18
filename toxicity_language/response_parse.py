@@ -58,17 +58,14 @@ def analyze_toxicity_response(response_data):
 
     other_categories_match = re.search(r'Other\s+(\d+)\s+categories', text)
     if other_categories_match:
+        print(other_categories_match)
         insights['other_categories_count'] = int(other_categories_match.group(1))
     else:
         insights['other_categories_count'] = 0
 
     return insights
 
-# Example usage:
-# response_data = {
-#     'type': 'matplotlib',
-#     'plot': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAHgCAYAAAA10dzkAAAAOXRFWHRTb2Z0d2FyZQBNYXRwbG90bGliIHZlcnNpb24zLjguNCwgaHR0cHM6Ly9tYXRwbG90bGliLm9yZy8fJSN1AAAACXBIWXMAAA9hAAAPYQGoP6dpAABoqElEQVR4nO3dd3yM9wMH8M/lsiMyJAQhJELsEVTVpqg9SnWo2IqiLZ1+RUvtqj2qVbPVoqitRu1Zq2YkYsaILSHJ3X1/fzxyyUmQcHffu3s+79crL8/dPbn7XFwun/t+n6ERQggQERERkWo4yQ5ARERERNbFAkhERESkMiyARERERCrDAkhERESkMiyARERERCrDAkhERESkMiyARERERCrDAkhERESkMiyARERERCrDAkhERESkMiyARERERCrDAkhERESkMiyARERERCrDAkhERESkMiyARERERCrDAkhERESkMiyARERERCrDAkhERESkMiyARERERCrDAkhERESkMiyARERERCrDAkhERESkMiyARERERCrDAkhERESkMiyARERERCrDAkhERESkMiyARERERCrDAkhERESkMiyARERERCrDAkhERESkMiyARERERCrDAkhERESkMiyARERERCrDAkhERESkMiyARERERCrDAkhERESkMiyA...'  # Your full base64 string here
-# }
+
 
 insights = analyze_toxicity_response(response_data)
 print(json.dumps(insights, indent=2))

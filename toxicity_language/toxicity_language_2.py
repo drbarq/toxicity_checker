@@ -9,6 +9,8 @@ import os
 from dotenv import load_dotenv
 from gradio_client import Client
 from openai import OpenAI
+# from openai.error import OpenAIError
+import time
 
 # Load environment variables from .env file
 load_dotenv()
@@ -23,15 +25,35 @@ print(f"Loaded API Key: {api_key}")
 client = OpenAI(api_key=api_key)
 duc_api_endpoint = "https://duchaba-friendly-text-moderation.hf.space/--replicas/d7p9y/"
 
-def translate_text(text, target_language):
-    chat_completion = client.chat.completions.create(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": "You are a translator."},
-            {"role": "user", "content": f"Translate the following text to {target_language}: {text}"}
-        ]
-    )
-    return chat_completion.choices[0].message.content.strip()
+
+def translate_text(text, target_language, max_retries=3):
+    refusal_patterns = [
+        r"I'm sorry, but I can't assist with that\.",
+        r"We're sorry, but we can't assist with that\.",
+        r"I can't help with that\.",
+        r"Sorry, but I can't assist with that\.",
+        r"I'm an AI developed by OpenAI and I'm committed to promoting positive and respectful interactions\."
+    ]
+    retries = 0
+    while retries < max_retries:
+        try:
+            chat_completion = client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": "You are a translator."},
+                    {"role": "user", "content": f"Translate the following text to {target_language}: {text}"}
+                ]
+            )
+            translated_text = chat_completion.choices[0].message.content.strip()
+            if any(re.search(pattern, translated_text) for pattern in refusal_patterns):
+                return "Translation refused"
+            return translated_text
+        except Exception as e:  # Catch all exceptions
+            print(f"API error: {e}. Retrying ({retries+1}/{max_retries})...")
+            retries += 1
+            time.sleep(2 ** retries)  # Exponential backoff
+    raise Exception("Failed to translate text after several retries")
+
 
 def check_text_toxicity(text, personalize_safer_value=0.005):
     moderation_client = Client(duc_api_endpoint)
@@ -47,9 +69,21 @@ def check_text_toxicity(text, personalize_safer_value=0.005):
     except Exception as e:
         print(f"Error occurred while calling the API: {e}")
         return None
-
+    
 def interpret_result(result, translated_text):
     insights = {}
+    insights['translated_text'] = translated_text
+
+    if translated_text == "Translation refused":
+        insights['overall_status'] = 'Unknown'
+        insights['classification'] = 'Unknown'
+        insights['confidence'] = 0.0
+        insights['primary_category'] = 'Unknown'
+        insights['primary_category_percentage'] = 0.0
+        insights['other_categories_percentage'] = 0.0
+        insights['other_categories_count'] = 0
+        insights['other_categories'] = []
+        return 'Translation Refused', insights
 
     # Extract image type
     insights['image_type'] = result.get('type', 'Unknown')
@@ -85,17 +119,21 @@ def interpret_result(result, translated_text):
             insights['primary_category_percentage'] = 0.0
             insights['other_categories_percentage'] = 0.0
 
-        category_match = re.search(r'(\w+)\s+[\d.]+%', text)
-        if category_match:
-            insights['primary_category'] = category_match.group(1)
+        primary_category_match = re.search(r'(harassment|harassment threatening|harassment instructions|hate|hate threatening|hate instructions|self harm|self harm instructions|self harm intent|self harm minor|sexual|sexual minors|violence|violence graphic)', text, re.IGNORECASE)
+        if primary_category_match:
+            insights['primary_category'] = primary_category_match.group(1)
         else:
             insights['primary_category'] = 'Unknown'
 
-        other_categories_match = re.search(r'Other\s+(\d+)\s+categories', text)
-        if other_categories_match:
-            insights['other_categories_count'] = int(other_categories_match.group(1))
-        else:
-            insights['other_categories_count'] = 0
+        other_categories_match = re.findall(r'(harassment|harassment threatening|harassment instructions|hate|hate threatening|hate instructions|self harm|self harm instructions|self harm intent|self harm minor|sexual|sexual minors|violence|violence graphic)', text, re.IGNORECASE)
+        insights['other_categories'] = [category.lower() for category in other_categories_match if category.lower() != insights['primary_category'].lower()]
+        insights['other_categories_count'] = len(insights['other_categories'])
+
+        # Print the extracted categories for debugging
+        print("Primary category:", insights['primary_category'])
+        print("Other categories:", insights['other_categories'])
+        print("Other categories count:", insights['other_categories_count'])
+
     else:
         insights['overall_status'] = 'No Image'
         insights['classification'] = 'No Image'
@@ -104,9 +142,7 @@ def interpret_result(result, translated_text):
         insights['other_categories_percentage'] = 0.0
         insights['primary_category'] = 'No Image'
         insights['other_categories_count'] = 0
-
-    # Add translated text to insights
-    insights['translated_text'] = translated_text
+        insights['other_categories'] = []
 
     # Determine classification based on confidence and overall status
     if insights['confidence'] < 70.0:
@@ -128,17 +164,25 @@ def interpret_result(result, translated_text):
 
     return classification_category, insights
 
+
 def generate_report(results, output_file, text):
+    translation_refused_languages = [lang for lang, result in results.items() if result[0] == 'Translation Refused']
     low_confidence_languages = [lang for lang, result in results.items() if result[0] == 'Low Confidence']
     borderline_languages = [lang for lang, result in results.items() if result[0] == 'Borderline']
     detected_languages = [lang for lang, result in results.items() if result[0] == 'Detected']
     
     with open(output_file, 'w') as file:
         file.write(f"Original Text:\n{text}\n\n")
+        
+        file.write("Languages where translation was refused:\n")
+        file.write(", ".join(translation_refused_languages) + "\n\n")
+
         file.write("Languages with Low Confidence:\n")
         file.write(", ".join(low_confidence_languages) + "\n\n")
+
         file.write("Languages with Borderline Toxicity:\n")
         file.write(", ".join(borderline_languages) + "\n\n")
+
         file.write("Languages where toxicity was detected:\n")
         file.write(", ".join(detected_languages) + "\n\n")
         
@@ -148,6 +192,10 @@ def generate_report(results, output_file, text):
             file.write(f"Translated Text: {insights['translated_text']}\n")
             file.write(f"Classification Category: {classification_category}\n")
             file.write(f"Insights: {json.dumps(insights, indent=4)}\n")
+            if insights['translated_text'] == "Translation refused":
+                file.write(f"Categories: Translation refused\n")
+            else:
+                file.write(f"Categories: {', '.join(insights['other_categories'])}\n")
 
 def test_english_toxicity(text, personalize_safer_value=0.005):
     result = check_text_toxicity(text, personalize_safer_value)
@@ -179,17 +227,17 @@ def main():
 
     languages = [
         "Afrikaans", "Albanian", "Amharic", "Arabic", "Armenian", "Azerbaijani", "Basque", "Belarusian", 
-        "Bengali", "Bosnian", "Bulgarian", "Burmese", "Catalan", "Cebuano", "Chichewa", "Chinese (Simplified)", 
-        "Chinese (Traditional)", "Corsican", "Croatian", "Czech", "Danish", "Dutch", "Esperanto", 
-        "Estonian", "Filipino", "Finnish", "French", "Galician", "Georgian", "German", "Greek", "Gujarati", 
-        "Haitian Creole", "Hausa", "Hawaiian", "Hebrew", "Hindi", "Hmong", "Hungarian", "Icelandic", "Igbo", 
-        "Indonesian", "Irish", "Italian", "Japanese", "Javanese", "Kannada", "Kazakh", "Khmer", "Korean", 
-        "Kurdish (Kurmanji)", "Kyrgyz", "Lao", "Latin", "Latvian", "Lithuanian", "Luxembourgish", "Macedonian", 
-        "Malagasy", "Malay", "Malayalam", "Maltese", "Maori", "Marathi", "Mongolian", "Nepali", "Norwegian", 
-        "Pashto", "Persian", "Polish", "Portuguese", "Punjabi", "Romanian", "Russian", "Samoan", "Scots Gaelic", 
-        "Serbian", "Sesotho", "Shona", "Sindhi", "Sinhala", "Slovak", "Slovenian", "Somali", 
-        "Sundanese", "Swahili", "Swedish", "Tajik", "Tamil", "Telugu", "Thai", "Turkish", "Ukrainian", "Urdu", 
-        "Uzbek", "Vietnamese", "Welsh", "Xhosa", "Yiddish", "Yoruba"
+        # "Bengali", "Bosnian", "Bulgarian", "Burmese", "Catalan", "Cebuano", "Chichewa", "Chinese (Simplified)", 
+        # "Chinese (Traditional)", "Corsican", "Croatian", "Czech", "Danish", "Dutch", "Esperanto", 
+        # "Estonian", "Filipino", "Finnish", "French", "Galician", "Georgian", "German", "Greek", "Gujarati", 
+        # "Haitian Creole", "Hausa", "Hawaiian", "Hebrew", "Hindi", "Hmong", "Hungarian", "Icelandic", "Igbo", 
+        # "Indonesian", "Irish", "Italian", "Japanese", "Javanese", "Kannada", "Kazakh", "Khmer", "Korean", 
+        # "Kurdish (Kurmanji)", "Kyrgyz", "Lao", "Latin", "Latvian", "Lithuanian", "Luxembourgish", "Macedonian", 
+        # "Malagasy", "Malay", "Malayalam", "Maltese", "Maori", "Marathi", "Mongolian", "Nepali", "Norwegian", 
+        # "Pashto", "Persian", "Polish", "Portuguese", "Punjabi", "Romanian", "Russian", "Samoan", "Scots Gaelic", 
+        # "Serbian", "Sesotho", "Shona", "Sindhi", "Sinhala", "Slovak", "Slovenian", "Somali", 
+        # "Sundanese", "Swahili", "Swedish", "Tajik", "Tamil", "Telugu", "Thai", "Turkish", "Ukrainian", "Urdu", 
+        # "Uzbek", "Vietnamese", "Welsh", "Xhosa", "Yiddish", "Yoruba"
     ]
 
     for language in languages:
@@ -207,7 +255,6 @@ def main():
             print(f"Failed to perform toxicity analysis for {language}.")
 
     generate_report(results, args.output, args.text)
-
 
 if __name__ == "__main__":
     main()
