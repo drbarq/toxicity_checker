@@ -48,7 +48,7 @@ def check_text_toxicity(text, personalize_safer_value=0.005):
         print(f"Error occurred while calling the API: {e}")
         return None
 
-def interpret_result(result):
+def interpret_result(result, translated_text):
     insights = {}
 
     # Extract image type
@@ -105,6 +105,9 @@ def interpret_result(result):
         insights['primary_category'] = 'No Image'
         insights['other_categories_count'] = 0
 
+    # Add translated text to insights
+    insights['translated_text'] = translated_text
+
     # Determine classification based on confidence and overall status
     if insights['confidence'] < 70.0:
         classification_category = 'Low Confidence'
@@ -125,11 +128,6 @@ def interpret_result(result):
 
     return classification_category, insights
 
-
-	# 1.	Low Confidence: Confidence is less than 70, regardless of the overall status.
-	# 2.	Borderline: Confidence is less than 90 and overall status is ‘Unsafe’.
-	# 3.	Detected: All other cases.
-
 def generate_report(results, output_file, text):
     low_confidence_languages = [lang for lang, result in results.items() if result[0] == 'Low Confidence']
     borderline_languages = [lang for lang, result in results.items() if result[0] == 'Borderline']
@@ -147,6 +145,7 @@ def generate_report(results, output_file, text):
         file.write("Detailed Results:\n")
         for language, (classification_category, insights) in results.items():
             file.write(f"\nLanguage: {language}\n")
+            file.write(f"Translated Text: {insights['translated_text']}\n")
             file.write(f"Classification Category: {classification_category}\n")
             file.write(f"Insights: {json.dumps(insights, indent=4)}\n")
 
@@ -154,7 +153,7 @@ def test_english_toxicity(text, personalize_safer_value=0.005):
     result = check_text_toxicity(text, personalize_safer_value)
     if result:
         print(f"Toxicity check result for English text: {result}")
-        detected, insights = interpret_result(result)
+        detected, insights = interpret_result(result, text)
         if detected:
             print("Toxicity detected in English.")
         else:
@@ -190,7 +189,7 @@ def main():
         "Pashto", "Persian", "Polish", "Portuguese", "Punjabi", "Romanian", "Russian", "Samoan", "Scots Gaelic", 
         "Serbian", "Sesotho", "Shona", "Sindhi", "Sinhala", "Slovak", "Slovenian", "Somali", 
         "Sundanese", "Swahili", "Swedish", "Tajik", "Tamil", "Telugu", "Thai", "Turkish", "Ukrainian", "Urdu", 
-        "Uzbek", "Vietnamese", "Welsh", "Xhosa", "Yiddish", "Yoruba", "Zulu"
+        "Uzbek", "Vietnamese", "Welsh", "Xhosa", "Yiddish", "Yoruba"
     ]
 
     for language in languages:
@@ -198,7 +197,7 @@ def main():
         result = check_text_toxicity(translated_text, args.safe_value)
         
         if result:
-            detected, insights = interpret_result(result)
+            detected, insights = interpret_result(result, translated_text)
             results[language] = (detected, insights)
             if detected:
                 print(f"Toxicity detected in {language}.")
